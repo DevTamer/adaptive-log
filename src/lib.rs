@@ -2,7 +2,7 @@
 //! systemd and routes log output accordingly.
 //!
 //! - **Under systemd**: structured output to the systemd journal via
-//!   [`systemd_journal_logger`] (Linux only). No ANSI noise; severity maps to
+//!   `systemd_journal_logger` (Linux only). No ANSI noise; severity maps to
 //!   journal priority levels.
 //! - **Standalone / non-Linux**: colored, `RUST_LOG`-driven output to stderr
 //!   via [`env_logger`].

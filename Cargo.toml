@@ -2,6 +2,7 @@
 name = "adaptive-log"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.71"
 description = "Auto-detecting logger: env_logger for standalone, systemd journal when running as a service"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/devtamer/adaptive-logger"

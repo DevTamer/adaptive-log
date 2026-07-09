@@ -1,6 +1,6 @@
 # adaptive-log
 
-Auto-detecting logger for Rust: uses [`env_logger`] when your binary runs standalone, and the [systemd journal] when it runs as a managed service. One call, zero configuration.
+Auto-detecting logger for Rust: uses [`env_logger`] when your binary runs standalone, and the [systemd journal] when it runs as a managed service. 
 
 ```rust
 fn main() {
@@ -40,16 +40,20 @@ adaptive_log::init();
 adaptive_log::init_with_filter("my_crate=debug,warn");
 ```
 
-Under `env_logger` the full filter syntax is supported. Under the journal the filter is parsed as a single log level (`error`, `warn`, `info`, `debug`, `trace`).
+The full `RUST_LOG` filter syntax is supported on both paths. Under the journal, the effective maximum level is derived from the filter and per-module filtering is left to the journal's own priority handling.
 
 ## Detection
 
-Detection relies on `JOURNAL_STREAM`, which systemd sets for any service whose `StandardOutput` or `StandardError` is `journal` (the default for most unit files). No socket probing, no `/proc` reads.
+Detection relies on `JOURNAL_STREAM`, which systemd sets for any service whose `StandardOutput` or `StandardError` is `journal` (the default for most unit files). The value is verified against the actual stderr file descriptor, so it can't be spoofed by simply exporting the variable.
 
-To simulate journal mode locally:
+If the journal socket turns out to be unavailable (e.g. inside a container without systemd), the crate silently falls back to `env_logger` instead of failing.
+
+To test the journal path on a Linux machine:
 
 ```sh
-JOURNAL_STREAM=8:0 RUST_LOG=debug cargo run
+cargo build --example basic
+systemd-run --user --wait ./target/debug/examples/basic
+journalctl --user -n 10
 ```
 
 ## Platform support
