@@ -1,0 +1,17 @@
+[package]
+name = "adaptive-log"
+version = "0.1.0"
+edition = "2021"
+description = "Auto-detecting logger: env_logger for standalone, systemd journal when running as a service"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/devtamer/adaptive-logger"
+keywords = ["logging", "systemd", "journal", "env-logger"]
+categories = ["development-tools::debugging"]
+readme = "README.md"
+
+[dependencies]
+log = "0.4"
+env_logger = "0.11"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+systemd-journal-logger = "2.2"
