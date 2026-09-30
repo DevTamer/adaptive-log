@@ -1,6 +1,6 @@
 # adaptive-log
 
-Auto-detecting logger for Rust: uses [`env_logger`] when your binary runs standalone, and the [systemd journal] when it runs as a managed service. 
+Auto-detecting logger for Rust: uses [`env_logger`] when your binary runs standalone, and the [systemd journal] when it runs as a managed service. Optional [`tracing`] support behind a feature flag, same detection either way.
 
 ```rust
 fn main() {
@@ -60,9 +60,33 @@ journalctl --user -n 10
 
 `systemd-journal-logger` is Linux-only. On macOS and Windows `adaptive-log` always uses `env_logger`, so the crate compiles and works everywhere without feature flags.
 
+## `tracing` support
+
+Enable the `tracing` feature for the same auto-detection wired into [`tracing`] instead of the `log` facade:
+
+```toml
+[dependencies]
+adaptive-log = { version = "0.2", features = ["tracing"] }
+tracing = "0.1"
+```
+
+```rust
+fn main() {
+    adaptive_log::init_tracing();
+    tracing::info!("ready");
+}
+```
+
+`init_tracing()` / `init_tracing_with_filter(filter)` build a `tracing_subscriber::Registry`, then attach [`tracing-journald`] under systemd (same journal-connection check as the `log` path) or `tracing_subscriber::fmt` otherwise. `$RUST_LOG` — or the explicit filter string — is parsed by `EnvFilter`, same directive syntax as the `log` path.
+
+This is a separate facade from `init()`/`init_with_filter()`, not a superset of it — pick whichever one matches how your dependencies log. If you depend on crates that use `log` directly, bridge them in with [`tracing-log`]'s `LogTracer`; going the other way, `tracing`'s own `log` feature re-emits its events through the `log` facade.
+
 ## License
 
 MIT OR Apache-2.0
 
 [`env_logger`]: https://crates.io/crates/env_logger
 [systemd journal]: https://crates.io/crates/systemd-journal-logger
+[`tracing`]: https://crates.io/crates/tracing
+[`tracing-journald`]: https://crates.io/crates/tracing-journald
+[`tracing-log`]: https://crates.io/crates/tracing-log

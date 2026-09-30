@@ -16,8 +16,19 @@
 //! // With an explicit filter string (same syntax as RUST_LOG)
 //! adaptive_log::init_with_filter("info");
 //! ```
+//!
+//! # `tracing` support
+//!
+//! Enable the `tracing` feature to get the same auto-detection wired into a
+//! [`tracing`] [`Registry`](tracing_subscriber::Registry) instead of the `log`
+//! facade: `adaptive_log::init_tracing()` installs `tracing-journald` under
+//! systemd, or `tracing_subscriber::fmt` otherwise. The two facades are
+//! independent — pick one `init*` function, not both.
 
 pub use log;
+
+#[cfg(feature = "tracing")]
+pub use tracing;
 
 #[cfg(target_os = "linux")]
 use log::LevelFilter;
@@ -54,6 +65,69 @@ pub fn init() {
 pub fn init_with_filter(filter: &str) {
     try_init_with_filter(filter)
         .expect("adaptive_log::init_with_filter called after a logger was already installed");
+}
+
+/// Initialises a global `tracing` subscriber (requires the `tracing` feature).
+///
+/// Uses the same detection as [`init`]: on Linux, if the process is connected
+/// to the systemd journal, installs `tracing-journald` as the output layer
+/// (Linux only, so the link doesn't resolve in docs built elsewhere).
+/// Otherwise falls back to `tracing_subscriber::fmt`.
+/// Verbosity in both cases comes from `$RUST_LOG`, parsed by
+/// [`tracing_subscriber::EnvFilter`], defaulting to `info` if unset or invalid.
+///
+/// This installs a `tracing` [`Registry`](tracing_subscriber::Registry), not a
+/// `log` logger — it's independent of [`init`]/[`init_with_filter`]. Call one
+/// or the other, not both.
+///
+/// # Panics
+///
+/// Panics if a global subscriber has already been installed.
+#[cfg(feature = "tracing")]
+pub fn init_tracing() {
+    try_init_tracing(None)
+        .expect("adaptive_log::init_tracing called after a global subscriber was already set");
+}
+
+/// Initialises a global `tracing` subscriber with an explicit filter string
+/// (requires the `tracing` feature).
+///
+/// The `filter` argument uses the same directive syntax as `$RUST_LOG`
+/// (e.g. `"info"`, `"my_crate=debug,warn"`), passed straight to
+/// [`tracing_subscriber::EnvFilter`].
+///
+/// # Panics
+///
+/// Panics if a global subscriber has already been installed.
+#[cfg(feature = "tracing")]
+pub fn init_tracing_with_filter(filter: &str) {
+    try_init_tracing(Some(filter))
+        .expect("adaptive_log::init_tracing_with_filter called after a global subscriber was already set");
+}
+
+#[cfg(feature = "tracing")]
+fn try_init_tracing(filter: Option<&str>) -> Result<(), tracing_subscriber::util::TryInitError> {
+    use tracing_subscriber::{prelude::*, EnvFilter, Registry};
+
+    let env_filter = match filter {
+        Some(f) => EnvFilter::new(f),
+        None => EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+    };
+
+    let registry = Registry::default().with(env_filter);
+
+    // Reuses the exact same detection as the `log` path: a journal socket
+    // being reachable is not enough (it's reachable on any systemd-based
+    // desktop) — this checks that *this process's* stderr was actually wired
+    // to the journal by systemd.
+    #[cfg(target_os = "linux")]
+    if systemd_journal_logger::connected_to_journal() {
+        if let Ok(journald) = tracing_journald::layer() {
+            return registry.with(journald).try_init();
+        }
+    }
+
+    registry.with(tracing_subscriber::fmt::layer()).try_init()
 }
 
 // ── internal ──────────────────────────────────────────────────────────────────
