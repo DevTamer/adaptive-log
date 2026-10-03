@@ -23,7 +23,7 @@
 //! [`tracing`] [`Registry`](tracing_subscriber::Registry) instead of the `log`
 //! facade: `adaptive_log::init_tracing()` installs `tracing-journald` under
 //! systemd, or `tracing_subscriber::fmt` otherwise. The two facades are
-//! independent — pick one `init*` function, not both.
+//! independent, so pick one `init*` function, not both.
 
 pub use log;
 
@@ -77,7 +77,7 @@ pub fn init_with_filter(filter: &str) {
 /// [`tracing_subscriber::EnvFilter`], defaulting to `info` if unset or invalid.
 ///
 /// This installs a `tracing` [`Registry`](tracing_subscriber::Registry), not a
-/// `log` logger — it's independent of [`init`]/[`init_with_filter`]. Call one
+/// `log` logger, and it's independent of [`init`]/[`init_with_filter`]. Call one
 /// or the other, not both.
 ///
 /// # Panics
@@ -118,7 +118,7 @@ fn try_init_tracing(filter: Option<&str>) -> Result<(), tracing_subscriber::util
 
     // Reuses the exact same detection as the `log` path: a journal socket
     // being reachable is not enough (it's reachable on any systemd-based
-    // desktop) — this checks that *this process's* stderr was actually wired
+    // desktop). This checks that *this process's* stderr was actually wired
     // to the journal by systemd.
     #[cfg(target_os = "linux")]
     if systemd_journal_logger::connected_to_journal() {

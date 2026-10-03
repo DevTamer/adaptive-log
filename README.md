@@ -77,9 +77,9 @@ fn main() {
 }
 ```
 
-`init_tracing()` / `init_tracing_with_filter(filter)` build a `tracing_subscriber::Registry`, then attach [`tracing-journald`] under systemd (same journal-connection check as the `log` path) or `tracing_subscriber::fmt` otherwise. `$RUST_LOG` — or the explicit filter string — is parsed by `EnvFilter`, same directive syntax as the `log` path.
+`init_tracing()` / `init_tracing_with_filter(filter)` build a `tracing_subscriber::Registry`, then attach [`tracing-journald`] under systemd (same journal-connection check as the `log` path) or `tracing_subscriber::fmt` otherwise. `$RUST_LOG`, or the explicit filter string, is parsed by `EnvFilter` using the same directive syntax as the `log` path.
 
-This is a separate facade from `init()`/`init_with_filter()`, not a superset of it — pick whichever one matches how your dependencies log. If you depend on crates that use `log` directly, bridge them in with [`tracing-log`]'s `LogTracer`; going the other way, `tracing`'s own `log` feature re-emits its events through the `log` facade.
+The two `init` paths install different global backends, so call one or the other. Crates that log with `log` macros show up under `init_tracing()` if you also call [`tracing-log`]'s `LogTracer::init()`. Crates that use `tracing` show up under `init()` if you enable the `log` feature on `tracing`, which forwards their events to the `log` facade when no tracing subscriber is installed.
 
 ## License
 
