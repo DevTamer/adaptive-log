@@ -4,8 +4,12 @@
 //! - **Under systemd**: structured output to the systemd journal via
 //!   `systemd_journal_logger` (Linux only). No ANSI noise; severity maps to
 //!   journal priority levels.
-//! - **Standalone / non-Linux**: colored, `RUST_LOG`-driven output to stderr
-//!   via [`env_logger`].
+//! - **Standalone / non-Linux**: colored output to stderr via [`env_logger`].
+//!
+//! Verbosity comes from `$RUST_LOG` on both paths, with the full env_logger
+//! directive syntax (e.g. `"my_crate=debug,warn"`). If `$RUST_LOG` is unset,
+//! the filter defaults to `info`. Note that this differs from env_logger,
+//! which defaults to `error`.
 //!
 //! # Usage
 //!
@@ -30,17 +34,21 @@ pub use log;
 #[cfg(feature = "tracing")]
 pub use tracing;
 
-#[cfg(target_os = "linux")]
-use log::LevelFilter;
+/// Filter applied when `$RUST_LOG` is unset, on every backend.
+const DEFAULT_FILTER: &str = "info";
 
 /// Initialises the global logger.
 ///
 /// - On Linux, if the process is connected to the systemd journal (detected via
-///   `$JOURNAL_STREAM`), installs the journal logger with max level `Trace` so
-///   the journal handles priority filtering itself.
-/// - Falls back to [`env_logger`] (reads `$RUST_LOG`) in all other cases,
-///   including non-Linux platforms, processes not started by systemd, and
-///   environments where the journal socket is unavailable (e.g. containers).
+///   `$JOURNAL_STREAM`), installs the journal logger.
+/// - Falls back to [`env_logger`] in all other cases, including non-Linux
+///   platforms, processes not started by systemd, and environments where the
+///   journal socket is unavailable (e.g. containers).
+///
+/// Either way, records are filtered by `$RUST_LOG` (e.g. set with
+/// `Environment=RUST_LOG=my_crate=debug` in a unit file), defaulting to `info`
+/// if it is unset. Plain env_logger defaults to `error` instead; set
+/// `RUST_LOG=error` to get that behaviour.
 ///
 /// # Panics
 ///
@@ -52,12 +60,10 @@ pub fn init() {
 /// Initialises the global logger with an explicit filter string.
 ///
 /// The `filter` argument uses the same syntax as `RUST_LOG`
-/// (e.g. `"info"`, `"myapp=debug,warn"`).
-///
-/// - On Linux with a journal connection, the max log level is derived from
-///   `filter` and set via `log::set_max_level`; the journal applies no further
-///   filtering.
-/// - Otherwise, `filter` is passed directly to [`env_logger::Builder::parse_filters`].
+/// (e.g. `"info"`, `"myapp=debug,warn"`) and replaces it: `$RUST_LOG` is not
+/// read. Backend selection is the same as [`init`], and the full syntax,
+/// including per-module directives, applies to both the journal and
+/// [`env_logger`].
 ///
 /// # Panics
 ///
@@ -111,7 +117,7 @@ fn try_init_tracing(filter: Option<&str>) -> Result<(), tracing_subscriber::util
 
     let env_filter = match filter {
         Some(f) => EnvFilter::new(f),
-        None => EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        None => EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_FILTER)),
     };
 
     let registry = Registry::default().with(env_filter);
@@ -134,55 +140,58 @@ fn try_init_tracing(filter: Option<&str>) -> Result<(), tracing_subscriber::util
 
 fn try_init() -> Result<(), log::SetLoggerError> {
     #[cfg(target_os = "linux")]
-    if try_install_journal(LevelFilter::Trace) {
+    if try_install_journal(&rust_log_or_default()) {
         return Ok(());
     }
 
-    env_logger::builder().try_init()
+    // from_env (rather than parsing RUST_LOG ourselves) keeps RUST_LOG_STYLE support.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(DEFAULT_FILTER))
+        .try_init()
 }
 
 fn try_init_with_filter(filter: &str) -> Result<(), log::SetLoggerError> {
     #[cfg(target_os = "linux")]
-    {
-        let level = max_level_from_filter(filter);
-        if try_install_journal(level) {
-            return Ok(());
-        }
+    if try_install_journal(filter) {
+        return Ok(());
     }
 
     env_logger::Builder::new().parse_filters(filter).try_init()
 }
 
-/// Derives the maximum `LevelFilter` from a RUST_LOG-style filter string
-/// without installing any logger.
+/// `$RUST_LOG`, or [`DEFAULT_FILTER`] if unset. Same lookup as env_logger's
+/// `default_filter_or`, so a set-but-empty value behaves identically on both paths.
 #[cfg(target_os = "linux")]
-fn max_level_from_filter(filter: &str) -> LevelFilter {
-    let mut builder = env_logger::Builder::new();
-    builder.parse_filters(filter);
-    builder.build().filter()
+fn rust_log_or_default() -> String {
+    std::env::var("RUST_LOG").unwrap_or_else(|_| DEFAULT_FILTER.to_owned())
 }
 
-/// Attempts to connect to and install the systemd journal logger.
+/// Attempts to connect to and install the systemd journal logger, filtered by
+/// `filter` (RUST_LOG syntax).
 ///
 /// Returns `true` on success. Returns `false` (falling back to env_logger) if:
 /// - the process is not connected to the journal (`$JOURNAL_STREAM` absent/mismatched)
 /// - the journal socket is unavailable (e.g. inside a container without systemd)
 /// - a logger was already installed concurrently
 #[cfg(target_os = "linux")]
-fn try_install_journal(max_level: LevelFilter) -> bool {
+fn try_install_journal(filter: &str) -> bool {
     use systemd_journal_logger::{connected_to_journal, JournalLog};
 
     if !connected_to_journal() {
         return false;
     }
 
-    let logger = match JournalLog::new() {
+    let journal = match JournalLog::new() {
         Ok(l) => l,
         Err(_) => return false,
     };
 
-    // install() calls log::set_boxed_logger but does NOT call set_max_level.
-    match logger.install() {
+    // JournalLog accepts every record, so wrap it in the same filter env_logger
+    // uses. The max level lets the log macros skip disabled records cheaply.
+    let filter = env_filter::Builder::new().parse(filter).build();
+    let max_level = filter.filter();
+    let logger = env_filter::FilteredLog::new(journal, filter);
+
+    match log::set_boxed_logger(Box::new(logger)) {
         Ok(()) => {
             log::set_max_level(max_level);
             true

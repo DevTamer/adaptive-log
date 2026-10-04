@@ -11,7 +11,7 @@ fn main() {
 
 ## How it works
 
-At startup `adaptive_log::init()` checks whether the process is connected to the systemd journal (via the `JOURNAL_STREAM` environment variable that systemd sets automatically). If yes, log records are sent to the journal with proper priority levels and structured fields. If not, `env_logger` takes over and reads the familiar `RUST_LOG` variable.
+At startup `adaptive_log::init()` checks whether the process is connected to the systemd journal (via the `JOURNAL_STREAM` environment variable that systemd sets automatically). If yes, log records are sent to the journal with proper priority levels and structured fields. If not, `env_logger` takes over. Either way, verbosity is controlled by the familiar `RUST_LOG` variable.
 
 | Environment | Backend | Output |
 |---|---|---|
@@ -24,7 +24,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-adaptive-log = "0.1"
+adaptive-log = "0.3"
 log = "0.4"
 ```
 
@@ -40,7 +40,24 @@ adaptive_log::init();
 adaptive_log::init_with_filter("my_crate=debug,warn");
 ```
 
-The full `RUST_LOG` filter syntax is supported on both paths. Under the journal, the effective maximum level is derived from the filter and per-module filtering is left to the journal's own priority handling.
+The explicit filter replaces `RUST_LOG`, which is then not read.
+
+## Filtering
+
+Both backends use env_logger's filter syntax in full, including per-module directives such as `my_crate=debug,warn`. If `RUST_LOG` is unset, the filter defaults to `info`. Note that this differs from plain `env_logger`, which defaults to `error`; set `RUST_LOG=error` if you want that behaviour.
+
+Under systemd, set `RUST_LOG` in the unit file:
+
+```ini
+[Service]
+Environment=RUST_LOG=my_crate=debug,info
+```
+
+Or on NixOS:
+
+```nix
+systemd.services.my-service.environment.RUST_LOG = "my_crate=debug,info";
+```
 
 ## Detection
 
@@ -66,7 +83,7 @@ Enable the `tracing` feature for the same auto-detection wired into [`tracing`] 
 
 ```toml
 [dependencies]
-adaptive-log = { version = "0.2", features = ["tracing"] }
+adaptive-log = { version = "0.3", features = ["tracing"] }
 tracing = "0.1"
 ```
 
@@ -77,7 +94,7 @@ fn main() {
 }
 ```
 
-`init_tracing()` / `init_tracing_with_filter(filter)` build a `tracing_subscriber::Registry`, then attach [`tracing-journald`] under systemd (same journal-connection check as the `log` path) or `tracing_subscriber::fmt` otherwise. `$RUST_LOG`, or the explicit filter string, is parsed by `EnvFilter` using the same directive syntax as the `log` path.
+`init_tracing()` / `init_tracing_with_filter(filter)` build a `tracing_subscriber::Registry`, then attach [`tracing-journald`] under systemd (same journal-connection check as the `log` path) or `tracing_subscriber::fmt` otherwise. `$RUST_LOG`, or the explicit filter string, is parsed by `EnvFilter` using the same directive syntax and the same `info` default as the `log` path.
 
 The two `init` paths install different global backends, so call one or the other. Crates that log with `log` macros show up under `init_tracing()` if you also call [`tracing-log`]'s `LogTracer::init()`. Crates that use `tracing` show up under `init()` if you enable the `log` feature on `tracing`, which forwards their events to the `log` facade when no tracing subscriber is installed.
 

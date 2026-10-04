@@ -1,6 +1,6 @@
 [package]
 name = "adaptive-log"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.71"
 description = "Auto-detecting logger: env_logger for standalone, systemd journal when running as a service"
@@ -24,6 +24,7 @@ tracing-subscriber = { version = "0.3", optional = true, features = ["env-filter
 
 [target.'cfg(target_os = "linux")'.dependencies]
 systemd-journal-logger = "2.2"
+env_filter = { version = "2", default-features = false, features = ["std"] }
 tracing-journald = { version = "0.3", optional = true }
 
 [[example]]
